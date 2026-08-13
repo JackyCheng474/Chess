@@ -1,142 +1,150 @@
-import java.util.Scanner;
-
 public class Game {
     private Board board;
     private Side currentSide;
-    private boolean gameContinue = true;
-    private ConsoleView view;
-    private Scanner scanner;
+    private boolean gameOver;
+    private String winner;
+    private String message;
 
-    public Game(Scanner scanner) {
-        this.board = new Board();
-        this.currentSide = Side.RED;
-        this.view = new ConsoleView();
-        this.scanner = scanner;
+    public Game() {
+        newGame();
     }
 
-    public void start() {
-        while (gameContinue) {
-            view.print(board, currentSide);
-            System.out.println(currentSide + "回合，请输入起点坐标（行 列），例如：0 4；认输请输 -1 -1");
+    public synchronized String newGame() {
+        board = new Board();
+        currentSide = Side.RED;
+        gameOver = false;
+        winner = null;
+        message = "新游戏开始，红方先手";
+        return toJson();
+    }
 
-            int[] start = readPosition();
-            if (start == null) {
-                System.out.println("输入格式错误，请重新输入两个整数，如：7 4");
-                continue;
-            }
-
-            int row = start[0];
-            int col = start[1];
-
-            if (row == -1 && col == -1) {
-                System.out.println(currentSide.opponent() + "胜利！");
-                gameContinue = false;
-                break;
-            }
-
-            Position from = new Position(row, col);
-            if (!board.inside(from) || board.get(from) == null) {
-                System.out.println("没有选中棋子，请重新输入");
-                continue;
-            }
-
-            ChessPiece piece = board.get(from);
-            if (piece.getSide() != currentSide) {
-                System.out.println("现在该对方行棋，请重新输入");
-                continue;
-            }
-
-            System.out.println("请输入目标坐标（行 列）：");
-            int[] end = readPosition();
-            if (end == null) {
-                System.out.println("输入格式错误，请重新输入两个整数，如：4 4");
-                continue;
-            }
-
-            Position to = new Position(end[0], end[1]);
-            if (!piece.canMove(board, from, to)) {
-                System.out.println("不符合棋子走法，请重新输入");
-                continue;
-            }
-
-            // 尝试走棋
-            ChessPiece captured = board.get(to);
-            board.set(to, piece);
-            board.set(from, null);
-
-            // 检查将帅照面
-            if (isKingMeeting()) {
-                board.set(from, piece);
-                board.set(to, captured);
-                System.out.println("帅与将不能见面，请重新输入");
-                continue;
-            }
-
-            // 检查送将
-            if (isInCheck(currentSide)) {
-                board.set(from, piece);
-                board.set(to, captured);
-                System.out.println("该走法会使己方被将军，请重新输入");
-                continue;
-            }
-
-            // 吃王判定
-            if (captured instanceof King) {
-                view.print(board, currentSide);
-                System.out.println(piece.getSide() + "胜利！");
-                gameContinue = false;
-                break;
-            }
-
-            currentSide = currentSide.opponent();
+    public synchronized String move(int fromRow, int fromCol,
+                                    int toRow, int toCol) {
+        message = "";
+        if (gameOver) {
+            message = "游戏已结束，请点击重新开始";
+            return toJson();
         }
+
+        Position from = new Position(fromRow, fromCol);
+        Position to = new Position(toRow, toCol);
+
+        if (!board.inside(from) || board.get(from) == null) {
+            message = "没有选中棋子";
+            return toJson();
+        }
+
+        ChessPiece piece = board.get(from);
+        if (piece.getSide() != currentSide) {
+            message = "现在该对方行棋";
+            return toJson();
+        }
+
+        if (!piece.canMove(board, from, to)) {
+            message = "不符合棋子走法";
+            return toJson();
+        }
+
+        ChessPiece captured = board.get(to);
+
+        // 模拟走子
+        board.set(to, piece);
+        board.set(from, null);
+
+        // 非法：送将 / 照面
+        if (isKingMeeting()) {
+            board.set(from, piece);
+            board.set(to, captured);
+            message = "不能将帅照面";
+            return toJson();
+        }
+
+        message = isInCheck(piece.getSide());
+        // 吃帅/将 => 胜利
+        if (captured instanceof King) {
+            gameOver = true;
+            winner = currentSide == Side.RED ? "红方" : "黑方";
+            message = winner + "胜利！";
+            return toJson();
+        }
+
+        currentSide = currentSide.opponent();
+        message = (currentSide == Side.RED ? "红方" : "黑方") + "回合";
+        return toJson();
     }
 
-    private boolean isInCheck(Side side) {
+    private String isInCheck(Side side) {
         Position king = board.findKing(side);
-        if (king == null) return false;
+        if (king == null) return "绝杀";
 
         for (int r = 0; r < 10; r++) {
             for (int c = 0; c < 9; c++) {
                 Position p = new Position(r, c);
                 ChessPiece piece = board.get(p);
                 if (piece == null || piece.getSide() == side) continue;
-                if (piece.canMove(board, p, king)) return true;
+                if (piece.canMove(board, p, king)) return "将军";
             }
         }
-
-        return isKingMeeting();
+        return "";
     }
 
+
     private boolean isKingMeeting() {
-        Position redKing = board.findKing(Side.RED);
-        Position blackKing = board.findKing(Side.BLACK);
+        Position red = board.findKing(Side.RED);
+        Position black = board.findKing(Side.BLACK);
+        if (red == null || black == null) return false;
+        if (red.col != black.col) return false;
 
-        if (redKing == null || blackKing == null) return false;
-        if (redKing.col != blackKing.col) return false;
-
-        for (int r = Math.min(redKing.row, blackKing.row) + 1;
-             r < Math.max(redKing.row, blackKing.row); r++) {
-            if (board.get(new Position(r, redKing.col)) != null) return false;
+        for (int r = Math.min(red.row, black.row) + 1;
+             r < Math.max(red.row, black.row); r++) {
+            if (board.get(new Position(r, red.col)) != null) return false;
         }
         return true;
     }
 
-    private int[] readPosition() {
-        if (!scanner.hasNextLine()) return null;
-        String line = scanner.nextLine().trim();
-        if (line.isEmpty()) return null;
+    public synchronized String toJson() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"board\":[");
 
-        String[] parts = line.split("\\s+");
-        if (parts.length != 2) return null;
-
-        try {
-            return new int[]{
-                    Integer.parseInt(parts[0]),
-                    Integer.parseInt(parts[1])
-            };
-        } catch (NumberFormatException e) {
-            return null;
+        for (int r = 0; r < 10; r++) {
+            if (r > 0) sb.append(",");
+            sb.append("[");
+            for (int c = 0; c < 9; c++) {
+                if (c > 0) sb.append(",");
+                ChessPiece p = board.get(new Position(r, c));
+                if (p == null) {
+                    sb.append("null");
+                } else {
+                    sb.append("{\"side\":\"")
+                            .append(p.getSide().name().toLowerCase())
+                            .append("\",\"type\":\"")
+                            .append(typeCode(p))
+                            .append("\"}");
+                }
+            }
+            sb.append("]");
         }
+
+        sb.append("],");
+        sb.append("\"currentSide\":\"")
+                .append(currentSide.name().toLowerCase()).append("\",");
+        sb.append("\"gameOver\":").append(gameOver).append(",");
+        sb.append("\"winner\":")
+                .append(winner == null ? "null" : "\"" + winner + "\"").append(",");
+        sb.append("\"message\":\"")
+                .append(message == null ? "" : message).append("\"");
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String typeCode(ChessPiece p) {
+        if (p instanceof Rook) return "R";
+        if (p instanceof Horse) return "H";
+        if (p instanceof Elephant) return "E";
+        if (p instanceof Advisor) return "A";
+        if (p instanceof King) return "K";
+        if (p instanceof Pawn) return "P";
+        if (p instanceof Cannon) return "C";
+        return "?";
     }
 }
