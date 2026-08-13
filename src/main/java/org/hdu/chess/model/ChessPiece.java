@@ -1,3 +1,7 @@
+package org.hdu.chess.model;
+
+
+
 public abstract class ChessPiece {
     protected final Side side;
     private final String redSymbol;

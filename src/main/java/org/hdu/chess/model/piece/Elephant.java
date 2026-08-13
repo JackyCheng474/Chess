@@ -1,3 +1,10 @@
+package org.hdu.chess.model.piece;
+
+import org.hdu.chess.model.Board;
+import org.hdu.chess.model.ChessPiece;
+import org.hdu.chess.model.Position;
+import org.hdu.chess.model.Side;
+
 public class Elephant extends ChessPiece {
     public Elephant(Side side) {
         super(side, "相", "象");

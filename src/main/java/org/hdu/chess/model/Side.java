@@ -1,3 +1,6 @@
+package org.hdu.chess.model;
+
+
 public enum Side {
     RED, BLACK;
 

@@ -1,3 +1,6 @@
+package org.hdu.chess.model;
+
+
 public class Position {
     public final int row;
     public final int col;

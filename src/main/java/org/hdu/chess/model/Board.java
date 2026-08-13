@@ -1,3 +1,8 @@
+package org.hdu.chess.model;
+
+import org.hdu.chess.model.piece.*;
+
+
 public class Board {
     private ChessPiece[][] grid = new ChessPiece[10][9];
 
