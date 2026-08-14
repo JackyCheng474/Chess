@@ -1,6 +1,7 @@
 package org.hdu.chess.model;
 
 
+import java.util.List;
 
 public abstract class ChessPiece {
     protected final Side side;
@@ -24,6 +25,8 @@ public abstract class ChessPiece {
     public String getSymbol() {
         return isRed() ? redSymbol : blackSymbol;
     }
+
+    public abstract List<Position> movingGenerator(Board board, Position from);
 
     /**
      * 模板方法：统一处理边界、原地、吃己方棋子，具体走法交给子类

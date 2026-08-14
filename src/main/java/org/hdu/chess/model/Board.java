@@ -43,6 +43,14 @@ public class Board {
         return null;
     }
 
+    public Board copy() {
+        Board copy = new Board();
+        for (int r = 0; r < 10; r++) {
+            System.arraycopy(grid[r], 0, copy.grid[r], 0, 9);
+        }
+        return copy;
+    }
+
     private void set(int row, int col, ChessPiece piece) {
         grid[row][col] = piece;
     }

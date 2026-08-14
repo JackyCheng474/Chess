@@ -4,10 +4,33 @@ import org.hdu.chess.model.Board;
 import org.hdu.chess.model.ChessPiece;
 import org.hdu.chess.model.Position;
 import org.hdu.chess.model.Side;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Horse extends ChessPiece {
     public Horse(Side side) {
         super(side, "马", "馬");
+    }
+
+    @Override
+    public List<Position> movingGenerator(Board board, Position from) {
+        List<Position> generator = new ArrayList<>();
+        generator.add(new Position(from.row+1, from.col+2));
+        generator.add(new Position(from.row+1, from.col-2));
+        generator.add(new Position(from.row-1, from.col+2));
+        generator.add(new Position(from.row-1, from.col-2));
+        generator.add(new Position(from.row+2, from.col+1));
+        generator.add(new Position(from.row+2, from.col-1));
+        generator.add(new Position(from.row-2, from.col-1));
+        generator.add(new Position(from.row-2, from.col+1));
+
+        List<Position> legal = new ArrayList<>();
+        for (Position to : generator) {
+            if (this.canMove(board, from, to)) {
+                legal.add(to);
+            }
+        }
+        return legal;
     }
 
     @Override
