@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>中国象棋 - 人机对战</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #f2e8d5;
+      font-family: "Microsoft YaHei", "KaiTi", sans-serif;
+      text-align: center;
+    }
+    #game { max-width: 620px; margin: 20px auto; }
+    h2 { color: #5B3A1E; margin-bottom: 10px; }
+    #status {
+      font-size: 22px;
+      font-weight: bold;
+      color: #8B0000;
+      margin-bottom: 6px;
+      min-height: 28px;
+    }
+    #info { color: #5B3A1E; font-size: 14px; margin-bottom: 8px; min-height: 18px; }
+    #board-container {
+      position: relative;
+      width: 556px;
+      height: 618px;
+      margin: 0 auto;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: pointer;
+      border-radius: 8px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    #board-svg { position: absolute; top: 0; left: 0; }
+    #pieces-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .piece {
+      position: absolute;
+      width: 52px; height: 52px;
+      pointer-events: auto;
+      cursor: grab;
+      z-index: 1;
+      transition: left 0.08s ease, top 0.08s ease;
+    }
+    .piece.selected svg { filter: drop-shadow(0 0 8px gold); }
+    .piece.dragging {
+      transition: none;
+      cursor: grabbing;
+      z-index: 10;
+    }
+    #controls { margin-top: 15px; }
+    #btn-restart, #btn-regret {
+      padding: 8px 24px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      background: #8B4513;
+      color: #fff;
+      border-radius: 6px;
+    }
+    #btn-restart:hover, #btn-regret:hover { background: #A0522D; }
+    #btn-regret { background: #5B3A1E; margin-right: 8px; }
+    #tip { margin-top: 12px; color: #777; font-size: 14px; }
+
+    /* 选边弹层 */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #overlay.hidden { display: none; }
+    #overlay-box {
+      background: #fdf6e3;
+      border-radius: 12px;
+      padding: 30px 40px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    #overlay-box h3 { color: #5B3A1E; margin-bottom: 18px; font-size: 20px; }
+    #side-buttons button {
+      display: block;
+      width: 180px;
+      margin: 10px auto;
+      padding: 12px 0;
+      font-size: 18px;
+      font-family: "KaiTi", "Microsoft YaHei", serif;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #fff;
+    }
+    #btn-red { background: #B71C1C; }
+    #btn-red:hover { background: #d32f2f; }
+    #btn-black { background: #37474F; }
+    #btn-black:hover { background: #455a64; }
+  </style>
+</head>
+<body>
+<div id="game">
+  <h2>中国象棋</h2>
+  <div id="status">请选择阵营</div>
+  <div id="info"></div>
+  <div id="board-container">
+    <svg id="board-svg"></svg>
+    <div id="pieces-layer"></div>
+  </div>
+  <div id="controls">
+    <button id="btn-regret" onclick="regret()">悔棋</button>
+    <button id="btn-restart" onclick="restart()">重新开始</button>
+  </div>
+  <p id="tip">点击选中己方棋子，再点击目标落子；也可以直接拖拽棋子。轮到 AI 时请稍候。</p>
+</div>
+
+<div id="overlay" class="hidden">
+  <div id="overlay-box">
+    <h3>选择你的阵营</h3>
+    <div id="side-buttons">
+      <button id="btn-red" onclick="selectSide('red')">红 方（先手）</button>
+      <button id="btn-black" onclick="selectSide('black')">黑 方（后手）</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ========== 常量 ==========
+  const ROWS = 10, COLS = 9;
+  const CELL = 62;
+  const MARGIN = 30;
+  const BOARD_W = MARGIN * 2 + CELL * (COLS - 1); // 556
+  const BOARD_H = MARGIN * 2 + CELL * (ROWS - 1); // 618
+  const PIECE_SIZE = 52;
+
+  const API_BASE = '/api';
+
+  const PIECE_CHARS = {
+    red:   { R: '车', H: '马', E: '相', A: '仕', K: '帅', P: '兵', C: '炮' },
+    black: { R: '車', H: '馬', E: '象', A: '士', K: '将', P: '卒', C: '砲' }
+  };
+
+  // ========== 状态 ==========
+  let state = null;        // 后端返回的完整局面
+  let selected = null;     // 当前选中的格子
+  let pressed = null;      // 鼠标按下时的格子
+  let dragPiece = null;    // 正在拖拽的 DOM 元素
+  let moved = false;
+  let lastMessage = '';
+  let playerSide = null;   // 玩家选的边：'red' | 'black' | null
+  let aiThinking = false;  // AI 是否正在走棋
+
+  const boardContainer = document.getElementById('board-container');
+  const piecesLayer = document.getElementById('pieces-layer');
+  const svg = document.getElementById('board-svg');
+
+  // ========== 画棋盘 ==========
+  function buildBoardSVG() {
+    const ns = 'http://www.w3.org/2000/svg';
+    svg.setAttribute('width', BOARD_W);
+    svg.setAttribute('height', BOARD_H);
+    svg.setAttribute('viewBox', `0 0 ${BOARD_W} ${BOARD_H}`);
+
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('x', 0); bg.setAttribute('y', 0);
+    bg.setAttribute('width', BOARD_W); bg.setAttribute('height', BOARD_H);
+    bg.setAttribute('fill', '#E8C07A');
+    svg.appendChild(bg);
+
+    const stroke = '#5B3A1E';
+
+    function addLine(x1, y1, x2, y2) {
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+      line.setAttribute('stroke', stroke);
+      line.setAttribute('stroke-width', 1.5);
+      svg.appendChild(line);
+    }
+
+    function addMarker(x, y) {
+      addLine(x - 5, y, x + 5, y);
+      addLine(x, y - 5, x, y + 5);
+    }
+
+    const border = document.createElementNS(ns, 'rect');
+    border.setAttribute('x', MARGIN); border.setAttribute('y', MARGIN);
+    border.setAttribute('width', 8 * CELL); border.setAttribute('height', 9 * CELL);
+    border.setAttribute('fill', 'none');
+    border.setAttribute('stroke', stroke);
+    border.setAttribute('stroke-width', 2.5);
+    svg.appendChild(border);
+
+    for (let i = 0; i < 10; i++) {
+      addLine(MARGIN, MARGIN + i * CELL, MARGIN + 8 * CELL, MARGIN + i * CELL);
+    }
+
+    for (let j = 0; j < 9; j++) {
+      const x = MARGIN + j * CELL;
+      addLine(x, MARGIN, x, MARGIN + 4 * CELL);
+      addLine(x, MARGIN + 5 * CELL, x, MARGIN + 9 * CELL);
+    }
+
+    addLine(MARGIN + 3 * CELL, MARGIN, MARGIN + 5 * CELL, MARGIN + 2 * CELL);
+    addLine(MARGIN + 5 * CELL, MARGIN, MARGIN + 3 * CELL, MARGIN + 2 * CELL);
+    addLine(MARGIN + 3 * CELL, MARGIN + 7 * CELL, MARGIN + 5 * CELL, MARGIN + 9 * CELL);
+    addLine(MARGIN + 5 * CELL, MARGIN + 7 * CELL, MARGIN + 3 * CELL, MARGIN + 9 * CELL);
+
+    addMarker(MARGIN + 1 * CELL, MARGIN + 2 * CELL);
+    addMarker(MARGIN + 7 * CELL, MARGIN + 2 * CELL);
+    addMarker(MARGIN + 1 * CELL, MARGIN + 7 * CELL);
+    addMarker(MARGIN + 7 * CELL, MARGIN + 7 * CELL);
+    for (let j = 0; j < 9; j += 2) {
+      addMarker(MARGIN + j * CELL, MARGIN + 3 * CELL);
+      addMarker(MARGIN + j * CELL, MARGIN + 6 * CELL);
+    }
+
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', MARGIN + 4 * CELL);
+    text.setAttribute('y', MARGIN + 4.5 * CELL);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', '22');
+    text.setAttribute('fill', stroke);
+    text.setAttribute('font-family', 'KaiTi, serif');
+    text.textContent = '楚 河  汉 界';
+    svg.appendChild(text);
+  }
+
+  // ========== 画棋子 ==========
+  function pieceSVG(piece) {
+    const char = PIECE_CHARS[piece.side][piece.type];
+    const color = piece.side === 'red' ? '#B71C1C' : '#1A1A1A';
+    const bg = piece.side === 'red' ? '#FDE3B5' : '#F7E8D0';
+    return `
+    <svg viewBox="0 0 100 100" width="${PIECE_SIZE}" height="${PIECE_SIZE}">
+      <circle cx="50" cy="50" r="46" fill="${bg}" stroke="${color}" stroke-width="3"/>
+      <circle cx="50" cy="50" r="39" fill="none" stroke="${color}" stroke-width="1"/>
+      <text x="50" y="64" text-anchor="middle" font-size="44"
+            fill="${color}" font-family="KaiTi, serif">${char}</text>
+    </svg>`;
+  }
+
+  function createPieceElement(piece) {
+    const div = document.createElement('div');
+    div.className = 'piece';
+    div.innerHTML = pieceSVG(piece);
+    return div;
+  }
+
+  function placePiece(el, row, col) {
+    el.dataset.row = row;
+    el.dataset.col = col;
+    el.style.left = (MARGIN + col * CELL - PIECE_SIZE / 2) + 'px';
+    el.style.top  = (MARGIN + row * CELL - PIECE_SIZE / 2) + 'px';
+  }
+
+  // ========== 渲染 ==========
+  function renderBoard() {
+    piecesLayer.innerHTML = '';
+    if (!state) return;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = state.board[r][c];
+        if (p) {
+          const el = createPieceElement(p);
+          piecesLayer.appendChild(el);
+          placePiece(el, r, c);
+        }
+      }
+    }
+  }
+
+  function updateStatus() {
+    const status = document.getElementById('status');
+    if (!state) {
+      status.textContent = '请选择阵营';
+      return;
+    }
+    if (state.gameOver) {
+      status.textContent = (state.winner || '游戏结束') + ' 胜利！';
+    } else if (aiThinking) {
+      status.textContent = 'AI 思考中…';
+    } else if (lastMessage) {
+      status.textContent = lastMessage;
+      lastMessage = '';
+    } else {
+      status.textContent =
+              (state.currentSide === 'red' ? '红方' : '黑方') + '回合';
+    }
+  }
+
+  function updateInfo() {
+    const info = document.getElementById('info');
+    if (!playerSide) {
+      info.textContent = '';
+      return;
+    }
+    const ai = playerSide === 'red' ? '黑方' : '红方';
+    info.textContent = '你执' + (playerSide === 'red' ? '红方' : '黑方') + ' · AI 执' + ai;
+  }
+
+  // ========== 选边弹层 ==========
+  function showOverlay() {
+    document.getElementById('overlay').classList.remove('hidden');
+  }
+  function hideOverlay() {
+    document.getElementById('overlay').classList.add('hidden');
+  }
+
+  // ========== 调用后端 API ==========
+  async function post(url, body) {
+    const opts = { method: 'POST', headers: {} };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(API_BASE + url, opts);
+    return res.json();
+  }
+
+  // 收到新状态后：重绘 + 若轮到 AI 则自动触发
+  function applyState(newState) {
+    state = newState;
+    lastMessage = state.message || '';
+    renderBoard();
+    updateStatus();
+    updateInfo();
+    scheduleAiIfNeeded();
+  }
+
+  async function selectSide(side) {
+    playerSide = side;
+    hideOverlay();
+    try {
+      applyState(await post('/side?side=' + side));
+    } catch (err) {
+      lastMessage = '无法连接后端：' + err.message;
+      updateStatus();
+    }
+  }
+
+  function restart() {
+    if (aiThinking) return;
+    clearSelection();
+    showOverlay();
+  }
+
+  async function sendMove(from, to) {
+    try {
+      applyState(await post('/move', {
+        from: { row: from.row, col: from.col },
+        to: { row: to.row, col: to.col }
+      }));
+    } catch (err) {
+      lastMessage = '无法连接后端：' + err.message;
+      updateStatus();
+    }
+  }
+
+  async function regret() {
+    if (aiThinking) return;
+    try {
+      applyState(await post('/regret'));
+    } catch (err) {
+      lastMessage = '无法连接后端：' + err.message;
+      updateStatus();
+    }
+  }
+
+  async function aiMove() {
+    try {
+      const s = await post('/ai');
+      aiThinking = false;      // 成功也要复位，否则棋盘永久锁死
+      applyState(s);
+    } catch (err) {
+      aiThinking = false;
+      lastMessage = '无法连接后端：' + err.message;
+      updateStatus();
+    }
+  }
+
+  // 核心规则：只要轮到 AI 且游戏没结束，就自动让 AI 走
+  function scheduleAiIfNeeded() {
+    if (aiThinking) return;
+    if (!state || state.gameOver) return;
+    if (state.aiSide && state.currentSide === state.aiSide) {
+      aiThinking = true;
+      updateStatus();
+      setTimeout(aiMove, 400);
+    }
+  }
+
+  function canInteract() {
+    if (!state) return false;
+    if (state.gameOver) return false;
+    if (aiThinking) return false;
+    if (state.aiSide && state.currentSide === state.aiSide) return false;
+    return true;
+  }
+
+  // ========== 选中辅助 ==========
+  function select(cell) {
+    clearSelection();
+    selected = cell;
+    const el = piecesLayer.querySelector(
+            `.piece[data-row="${cell.row}"][data-col="${cell.col}"]`);
+    if (el) el.classList.add('selected');
+  }
+
+  function clearSelection() {
+    if (selected) {
+      const el = piecesLayer.querySelector(
+              `.piece[data-row="${selected.row}"][data-col="${selected.col}"]`);
+      if (el) el.classList.remove('selected');
+    }
+    selected = null;
+  }
+
+  function getCellFromEvent(e) {
+    const rect = boardContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const col = Math.round((x - MARGIN) / CELL);
+    const row = Math.round((y - MARGIN) / CELL);
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return null;
+    return { row, col };
+  }
+
+  // ========== 鼠标交互 ==========
+  function onMouseMove(e) {
+    const rect = boardContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (!dragPiece) return;
+
+    const origX = MARGIN + pressed.col * CELL;
+    const origY = MARGIN + pressed.row * CELL;
+
+    if (Math.hypot(x - origX, y - origY) > 4) {
+      moved = true;
+      dragPiece.classList.add('dragging');
+    }
+    if (moved) {
+      dragPiece.style.left = (x - PIECE_SIZE / 2) + 'px';
+      dragPiece.style.top = (y - PIECE_SIZE / 2) + 'px';
+    }
+  }
+
+  async function onMouseUp(e) {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+
+    const cell = getCellFromEvent(e);
+
+    if (moved && dragPiece) {
+      // 拖拽落子
+      if (cell && !(cell.row === pressed.row && cell.col === pressed.col)) {
+        await sendMove(pressed, cell);
+      }
+      clearSelection();
+    } else if (!moved && cell) {
+      // 点击落子
+      const piece = state.board[cell.row][cell.col];
+      if (piece && piece.side === state.currentSide) {
+        select(cell);
+      } else if (selected) {
+        await sendMove(selected, cell);
+        clearSelection();
+      }
+    }
+
+    if (dragPiece) dragPiece.classList.remove('dragging');
+    dragPiece = null;
+    pressed = null;
+    moved = false;
+  }
+
+  boardContainer.addEventListener('mousedown', (e) => {
+    if (!canInteract()) return;
+
+    const cell = getCellFromEvent(e);
+    if (!cell) return;
+
+    const piece = state.board[cell.row][cell.col];
+    if (!piece) return;
+
+    if (piece.side !== state.currentSide) {
+      lastMessage = '现在该对方行棋';
+      updateStatus();
+      return;
+    }
+
+    pressed = cell;
+    moved = false;
+    select(cell);
+
+    dragPiece = piecesLayer.querySelector(
+            `.piece[data-row="${cell.row}"][data-col="${cell.col}"]`);
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    e.preventDefault();
+  });
+
+  // ========== 启动 ==========
+  buildBoardSVG();
+  showOverlay();
+</script>
+</body>
+</html>
