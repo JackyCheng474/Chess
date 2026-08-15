@@ -9,7 +9,7 @@ import java.util.List;
 
 public class Pawn extends ChessPiece {
     public Pawn(Side side) {
-        super(side, "兵", "卒");
+        super(side, "兵", "卒",1.0);
     }
 
     @Override

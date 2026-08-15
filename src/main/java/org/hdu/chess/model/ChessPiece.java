@@ -7,15 +7,21 @@ public abstract class ChessPiece {
     protected final Side side;
     private final String redSymbol;
     private final String blackSymbol;
+    private final double value;
 
-    public ChessPiece(Side side, String redSymbol, String blackSymbol) {
+    public ChessPiece(Side side, String redSymbol, String blackSymbol,double value) {
         this.side = side;
         this.redSymbol = redSymbol;
         this.blackSymbol = blackSymbol;
+        this.value = value;
     }
 
     public Side getSide() {
         return side;
+    }
+
+    public double getValue() {
+        return value;
     }
 
     public boolean isRed() {

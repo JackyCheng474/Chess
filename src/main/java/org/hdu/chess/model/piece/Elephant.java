@@ -9,7 +9,7 @@ import java.util.List;
 
 public class Elephant extends ChessPiece {
     public Elephant(Side side) {
-        super(side, "相", "象");
+        super(side, "相", "象",2.0);
     }
 
     @Override

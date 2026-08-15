@@ -9,7 +9,7 @@ import java.util.List;
 
 public class King extends ChessPiece {
     public King(Side side) {
-        super(side, "帅", "将");
+        super(side, "帅", "将",1000.0);
     }
 
     @Override
