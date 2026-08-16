@@ -12,8 +12,7 @@ import org.hdu.chess.model.piece.King;
 import org.hdu.chess.tool.Evaluator;
 
 /**
- * α-β 剪枝搜索（纯函数式：永远在棋盘副本上模拟，不改传入的棋盘）。
- * 入口 bestMove(board, aiSide, depth)：返回 aiSide 的最佳走法，同分随机。
+ * α-β 剪枝搜索
  */
 public final class AlphaBetaSearch {
 

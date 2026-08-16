@@ -65,6 +65,10 @@ public class GameService {
     }
 
     // 写行棋的各种限制
+    public synchronized Side getCurrentSide() {
+        return currentSide;
+    }
+
     public synchronized GameState move(int fromRow, int fromCol,
                                        int toRow, int toCol) {
         message = "";

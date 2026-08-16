@@ -44,6 +44,4 @@ public class GameController {
     public GameState aiMove() {
         return aiService.move();
     }
-
-
 }
